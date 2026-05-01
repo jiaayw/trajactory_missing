@@ -16,9 +16,11 @@ def make_observation_mask(
     device = obs.device
     mask = torch.ones(batch, obs_len, 1, device=device)
 
-    if mode == "complete" or drop_rate <= 0:
+    if mode == "complete":
         return mask
     if mode == "random":
+        if drop_rate <= 0:
+            return mask
         mask = (torch.rand(batch, obs_len, 1, device=device) > drop_rate).float()
         mask[:, 0, :] = 1.0
         return mask
@@ -30,6 +32,8 @@ def make_observation_mask(
             mask[row, start : start + length, :] = 0.0
         return mask
     if mode == "partial":
+        if drop_rate <= 0:
+            return mask
         missing = max(1, min(int(round(obs_len * drop_rate)), obs_len - 1))
         mask[:, obs_len - missing :, :] = 0.0
         return mask

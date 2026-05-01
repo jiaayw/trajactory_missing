@@ -1,119 +1,163 @@
-# Missingness-Aware Trajectory Prediction
+# Missingness-Aware Pedestrian Trajectory Prediction
 
-This project uses preprocessed ETH/UCY-style trajectory coordinates to compare
-baseline trajectory predictors with missingness-aware proposed models.
+Code repository for **Missingness-Aware Pedestrian Trajectory Prediction from Visual Observations**.
 
-## Folder Layout
+This project studies short-horizon pedestrian trajectory prediction on ETH/UCY data when the observed visual track is incomplete. Each sample uses 8 observed 2D positions and predicts the next 12 positions. The predicted trajectory is then mapped to a simple navigation action: `stop`, `go`, `turn_left`, or `turn_right`.
 
-- `data/`: raw/preprocessed datasets plus dataset loading and missingness utilities.
-- `baseline_model/`: Baseline A constant velocity and Baseline B vanilla LSTM encoder-decoder.
-- `project_model/`: proposed missingness-aware LSTM and Transformer models.
-- `navigation/`: rule-based stop/go/turn decision demo.
-- `utils/`: shared metrics and plotting helpers.
-- `results/`: generated checkpoints and plots.
-- `notebooks/`: Colab-ready notebook.
+## Overview
 
-## Local Run
+The project compares four predictors:
 
-```bash
-.venv/bin/python smoke_test.py
-.venv/bin/python experiment.py --model constant_velocity --split zara1 --missing-mode complete
-.venv/bin/python experiment.py --model vanilla_lstm --split zara1 --epochs 5 --teacher-forcing-ratio 0.5
-.venv/bin/python experiment.py --model vanilla_lstm --split zara1 --missing-mode random --drop-rate 0.3 --epochs 5
-.venv/bin/python experiment.py --model missing_lstm --split zara1 --missing-mode random --drop-rate 0.3 --mixed-missingness --epochs 20 --hidden-dim 128 --dropout 0.05 --lr 5e-4 --teacher-forcing-decay --loss huber --residual-weight 0.01 --feature-mode motion --plot
-.venv/bin/python experiment.py --model missing_transformer --split zara1 --missing-mode random --drop-rate 0.3 --mixed-missingness --epochs 20 --hidden-dim 128 --dropout 0.05 --lr 5e-4 --teacher-forcing-decay --loss huber --residual-weight 0.01 --feature-mode motion --plot
-.venv/bin/python run_full_experiments.py --splits zara1 zara2 --epochs 5 --teacher-forcing-decay
-```
+- **Constant Velocity**: extrapolates from the two most recent valid observations.
+- **Vanilla LSTM**: encoder-decoder LSTM that predicts future coordinates directly from filled coordinate histories.
+- **Missingness-Aware LSTM**: uses motion features, observation masks, and missing-gap features, then predicts a residual correction over a constant-velocity forecast.
+- **Missingness-Aware Transformer**: uses the same missingness-aware motion features with Transformer encoder layers, a residual head, and a learned residual gate.
 
-Baseline B is a project-specific vanilla LSTM encoder-decoder adapted from
-[lkulowski/LSTM_encoder_decoder](https://github.com/lkulowski/LSTM_encoder_decoder):
-an encoder consumes the observed sequence, a decoder starts from the final
-observed coordinate, training can use teacher forcing, and evaluation predicts
-recursively.
+Missing observations are simulated only in the 8-step input history. The evaluated settings are `complete`, `random_0.1`, `random_0.3`, `random_0.5`, `contiguous`, and `partial`.
 
-The proposed models are residual-over-constant-velocity models: they first
-build a constant-velocity forecast from the observed points and missingness
-mask, then learn corrections to that forecast. The Transformer variant uses a
-learned gate on the residual correction so it can stay close to constant
-velocity when the short-horizon motion is nearly linear. The optimized
-`--feature-mode motion` setting feeds relative position, velocity,
-acceleration, observation mask, and time-gap features to the proposed models
-while still using absolute coordinates for the constant-velocity base.
+## Repository Layout
 
-To adjust training length, change `--epochs`. In Colab, change the `epochs=`
-line in the config cell.
+- `data/`: ETH/UCY data, trajectory dataset loader, and missingness utilities.
+- `baseline_model/`: constant-velocity and vanilla LSTM baselines.
+- `project_model/`: missingness-aware LSTM and Transformer models.
+- `navigation/`: rule-based navigation decision logic.
+- `utils/`: metrics, plotting, and trajectory helpers.
+- `results/`: checkpoints, experiment CSV, and generated plots.
+- `final_report/`: CVPR-format report, generated figures, and figure-generation script.
+- `notebooks/`: Colab notebook for training and experiment runs.
 
-`run_full_experiments.py` writes `results/full_experiment_results.csv` and
-representative navigation plots under `results/plots/`. For the full report,
-run all splits with `--splits zara1 zara2 eth hotel univ`. The CSV includes
-ADE/FDE plus navigation decision metrics such as `action_accuracy`,
-`stop_precision`, and `stop_recall`.
-
-## Laptop Webcam Demo
-
-The webcam demo is a qualitative bridge from the coordinate model to a robot
-navigation-style interface. It tracks one moving person/object in the laptop
-camera, converts the center point into a short 2D trajectory, predicts the next
-trajectory points, and displays a `stop`, `go`, `turn_left`, or `turn_right`
-action.
-
-```bash
-.venv/bin/python demo_webcam_navigation.py --mirror
-```
-
-By default, the demo loads `results/colab_zara1_missing_transformer_best.pt`. If you
-train a stronger checkpoint, pass it explicitly:
-
-```bash
-.venv/bin/python demo_webcam_navigation.py --checkpoint results/colab_zara1_missing_transformer_best.pt --model missing_transformer --mirror
-```
-
-If the tracker is too sensitive or not sensitive enough, adjust
-`--min-contour-area`. Press `q` to quit the camera window. This demo uses image
-coordinates for visualization, so treat it as a classroom navigation demo rather
-than a calibrated physical robotics benchmark.
-
-The same demo also includes a simple RGB-only obstacle-zone layer for immediate
-obstacles in the lower camera view. To test only obstacle zones:
-
-```bash
-.venv/bin/python demo_webcam_navigation.py --mirror --disable-trajectory
-```
-
-To tune the obstacle detector, adjust the lower-image ROI and sensitivity:
-
-```bash
-.venv/bin/python demo_webcam_navigation.py --mirror --obstacle-roi-start 0.55 --obstacle-threshold 0.025 --obstacle-min-area 1200
-```
-
-## Chessboard Grid Demo
-
-For a more reliable classroom demo, use the top-down chessboard visualization.
-It replays a real ETH/UCY trajectory window, shows the robot/camera as a dot,
-marks missing observations, draws the predicted and true futures, and displays
-the navigation action.
-
-```bash
-.venv/bin/python demo_grid_navigation.py --split zara1 --missing-mode random --drop-rate 0.3
-```
-
-For a headless smoke test or report image:
-
-```bash
-.venv/bin/python demo_grid_navigation.py --split zara1 --sample-index 0 --missing-mode random --drop-rate 0.3 --headless --save-path results/plots/grid_demo.png
-```
-
-To use the webcam as the live sensor while showing the clean chessboard view:
-
-```bash
-.venv/bin/python demo_grid_navigation.py --live-webcam --camera-index 0 --mirror
-```
-
-Use `--no-show-camera-inset` if you want only the chessboard on screen.
-
-If you need to recreate the local environment:
+## Setup
 
 ```bash
 python3 -m venv .venv
 .venv/bin/pip install -r requirements.txt
 ```
+
+Run the smoke test:
+
+```bash
+.venv/bin/python smoke_test.py
+```
+
+## Experiments
+
+Run one model on one split:
+
+```bash
+.venv/bin/python experiment.py --model constant_velocity --split zara1 --missing-mode complete
+```
+
+Train and evaluate a missingness-aware model:
+
+```bash
+.venv/bin/python experiment.py \
+  --model missing_transformer \
+  --split zara1 \
+  --missing-mode random \
+  --drop-rate 0.3 \
+  --mixed-missingness \
+  --epochs 20 \
+  --hidden-dim 128 \
+  --dropout 0.05 \
+  --lr 5e-4 \
+  --teacher-forcing-decay \
+  --loss huber \
+  --residual-weight 0.01 \
+  --feature-mode motion \
+  --plot
+```
+
+Run the full evaluation table:
+
+```bash
+.venv/bin/python run_full_experiments.py \
+  --splits zara1 zara2 eth hotel univ \
+  --epochs 10 \
+  --hidden-dim 128 \
+  --dropout 0.05 \
+  --lr 5e-4 \
+  --teacher-forcing-decay \
+  --loss huber \
+  --feature-mode motion
+```
+
+The full run writes:
+
+- `results/full_experiment_results.csv`
+- representative navigation plots under `results/plots/`
+- metrics including ADE, FDE, action accuracy, stop precision, and stop recall
+
+## Report and Figures
+
+Generate report-ready figures from the saved CSV:
+
+```bash
+.venv/bin/python final_report/generate_report_figures.py
+```
+
+Compile the CVPR-format report:
+
+```bash
+pdflatex -interaction=nonstopmode -jobname=final_report_cvpr_full -output-directory=final_report final_report/final_report_cvpr_full.tex
+pdflatex -interaction=nonstopmode -jobname=final_report_cvpr_full -output-directory=final_report final_report/final_report_cvpr_full.tex
+```
+
+Main report output:
+
+- `final_report/final_report_cvpr_full.pdf`
+
+## Demos
+
+### Virtual Road Demo
+
+The most stable visual demo is the virtual road-driving interface. It uses scripted pedestrian observations, runs the trained trajectory model, and converts the predicted path into high-level navigation behavior.
+
+```bash
+.venv/bin/python demo_virtual_navigation.py
+```
+
+### Grid Navigation Demo
+
+The grid demo replays a real ETH/UCY trajectory window, shows observed and missing points, draws the predicted and true futures, and displays the selected navigation action.
+
+```bash
+.venv/bin/python demo_grid_navigation.py --split zara1 --missing-mode random --drop-rate 0.3
+```
+
+For a headless saved image:
+
+```bash
+.venv/bin/python demo_grid_navigation.py \
+  --split zara1 \
+  --sample-index 0 \
+  --missing-mode random \
+  --drop-rate 0.3 \
+  --headless \
+  --save-path results/plots/grid_demo.png
+```
+
+### Webcam Demo
+
+The webcam demo is a qualitative bridge from live image observations to trajectory-based navigation actions. It tracks one moving person or object, builds a short 2D history, predicts future points, and displays the selected action.
+
+```bash
+.venv/bin/python demo_webcam_navigation.py --mirror
+```
+
+Use a specific checkpoint:
+
+```bash
+.venv/bin/python demo_webcam_navigation.py \
+  --checkpoint results/colab_zara1_missing_transformer_best.pt \
+  --model missing_transformer \
+  --mirror
+```
+
+Press `q` to quit the camera window.
+
+## Notes
+
+- The full experiment uses five scene splits: `zara1`, `zara2`, `eth`, `hotel`, and `univ`.
+- The missingness-aware models are trained with mixed missingness: `random_0.1`, `random_0.3`, `random_0.5`, and `partial`.
+- The vanilla LSTM does not receive masks, gap features, velocity, or acceleration.
+- The demos are intended for qualitative navigation visualization, not calibrated physical-robot benchmarking.
